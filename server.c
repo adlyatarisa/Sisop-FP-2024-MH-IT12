@@ -331,21 +331,21 @@ int create_channel(const char *channel_name, const char *username, const char *k
 }
 
 int create_room(const char *channel_name, char *room_name, const char *username) {
-    // Create a directory for room
-    char dir_path[512];
+    char dir_path[512], chat_path[256];
     snprintf(dir_path, sizeof(dir_path), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/%s", channel_name, room_name);
+    snprintf(chat_path, sizeof(chat_path), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/%s/chat.csv", channel_name, room_name);
 
     if (mkdir(dir_path, 0777) == -1) {
         perror("Could not create directory for room");
         return 0;
     } else{
-        printf("Room created successfully\n");
+    
+            printf("Room created successfully\n");
     }
 
-    char admin_path[512];
+    // catet log
+    char admin_path[512], activity[256];
     snprintf(admin_path, sizeof(admin_path), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/admin", channel_name);
-
-    char activity[256];
     snprintf(activity, sizeof(activity), "%s buat %s", username, room_name);
     log_user_activity(username, activity, admin_path);
 
@@ -1182,13 +1182,7 @@ void handle_client(int new_socket) {
                                 // catet di auth.csv
                                 char auth_file[512];
                                 snprintf(auth_file, sizeof(auth_file), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/admin/auth.csv", channel_name);
-                                FILE *auth_fp = fopen(auth_file, "a");
-                                if (auth_fp) {
-                                    int user_id = getIDuser_channel(channel_name);
-                                    fprintf(auth_fp, "%d,%s,%s\n", user_id, username, ROLE_ROOT);
-                                    fclose(auth_fp);
-                                }
-
+                            
                                 // kalo belum member, tulis namanya di auth.csv
                                 if (!is_member(user.username, channel_name)){
                                     printf("bukan member\n");
@@ -1297,7 +1291,7 @@ void handle_client(int new_socket) {
                         printf("%s\n", channel_name);
                         printf("%s\n", room_name);
 
-                        if (room_exists(channel_name, room_name)) {
+                        if (room_exists(channel_name, room_name) && strcmp(room_name, "admin") != 0) {
                             // admin/root 
                             if (is_admin(room_name, user.id) || is_root(user.username)) {
                                 // catet log
@@ -1401,7 +1395,9 @@ void handle_client(int new_socket) {
                         char new_username[256];
                         sscanf(buffer, "%*s %*s %*s %*s %255s", new_username); //EDIT PROFILE SELF -u new_username
                         if (edit_username(user.username, new_username)) {
-                            send(new_socket, "Profil diupdate\n", strlen("Profil diupdate\n"), 0);
+                            char response[256];
+                            snprintf(response, sizeof(response), "Profil diupdate menjadi %s", new_username);
+                            send(new_socket, response, strlen(response), 0);
                             strcpy(user.username, new_username); //update username di struct
                         } else {
                             send(new_socket, "Profile gagal diupdate\n", strlen("Profile gagal diupdate\n"), 0);
@@ -1476,13 +1472,16 @@ void handle_client(int new_socket) {
                         send(new_socket, "Invalid command\n", strlen("Invalid command\n"), 0);
                     }
                 } else if(strcmp(buffer, "LIST USER") == 0){
-                    // list user keseluruhan (cuma bisa root)
-                    if(is_root(user.username)){
-                        list_users(new_socket);
-                    } else if (!is_root(user.username) && user.in_channel == 0){
+                    // cek di dalem channel apa bukan
+                    if(user.in_channel == 0){ 
+                        // list user keseluruhan (cuma bisa root)
                         list_channel_users(new_socket, user.cur_channel);
                     } else {
-                        send(new_socket, "Anda bukan root\n", strlen("Anda bukan root\n"), 0);
+                        if(is_root(user.username)){
+                            list_users(new_socket);
+                        } else {
+                            send(new_socket, "Anda bukan root\n", strlen("Anda bukan root\n"), 0);
+                        }
                     }
                 } else if(strncmp(buffer, "BAN", 3) == 0){
                     char users_name[256];
@@ -1585,11 +1584,13 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    // Setting SO_REUSEADDR separately
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
         perror("setsockopt SO_REUSEADDR");
         exit(EXIT_FAILURE);
     }
 
+    // Setting SO_REUSEPORT separately
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("setsockopt SO_REUSEPORT");
         exit(EXIT_FAILURE);
