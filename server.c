@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <pthread.h>
+#include <bcrypt.h>
 #define PORT 8081
 
 #define USERS_FILE "/Users/tarisa/smt-2/sisop/FP/discorit/users.csv"
@@ -74,6 +76,16 @@ int getIDuser() {
     return max_id + 1;
 }
 
+char *bcrypt(const char *password) {
+    char salt[] = "$2b$12$XXXXXXXXXXXXXXXXXXXXXX"; // Generate a random salt
+    char *encrypted_password = crypt(password, salt);
+    return strdup(encrypted_password);
+}
+
+// buat decrypt
+int check_password(const char *password, const char *encrypted_password) {
+    return strcmp(encrypted_password, crypt(password, encrypted_password)) == 0;
+}
 
 int register_user(const char *username, const char *password) {
     if (user_exists(username)) {
@@ -92,7 +104,9 @@ int register_user(const char *username, const char *password) {
         role = ROLE_ROOT;
     }
     int user_id = getIDuser();
-    fprintf(file, "%d,%s,%s,%s\n", user_id, username, password, role);
+    char *encrypted_password = bcrypt(password);
+    fprintf(file, "%d,%s,%s,%s\n", user_id, username, encrypted_password, role);
+    free(encrypted_password);
     fclose(file);
 
     return 1;
@@ -280,7 +294,9 @@ int create_channel(const char *channel_name, const char *username, const char *k
         return 0;
     }
 
-    fprintf(file, "%d,%s,%s\n", channel_id, channel_name, key);
+
+    char *encrypted_key = bcrypt(key);
+    fprintf(file, "%d,%s,%s\n", channel_id, channel_name, encrypted_key);
     fclose(file);
 
     // Create a directory for the channel
@@ -631,7 +647,7 @@ int is_member(const char *username, const char *channel_name){
         char file_username[256], file_role[256];
         sscanf(line, "%d,%255[^,],%255[^,]", &file_id, file_username, file_role);
         file_role[strcspn(file_role, "\r\n")]=0; // remove newline
-        printf("%s\n", file_username);
+        //printf("%s\n", file_username);
         // kalo ada, maka member
         if (strcmp(username, file_username) == 0) {
             fclose(file);
@@ -647,7 +663,7 @@ int is_member(const char *username, const char *channel_name){
 int edit_username(const char *username, const char *new_username) {
     FILE *file = fopen(USERS_FILE, "r");
     if (!file) {
-        printf("ga ada file nya");
+        //printf("ga ada file nya");
         perror("Could not open users.csv");
         return 0;
     }
@@ -657,7 +673,7 @@ int edit_username(const char *username, const char *new_username) {
     snprintf(temp_filename, sizeof(temp_filename), "%s.tmp", USERS_FILE);
     FILE *temp_file = fopen(temp_filename, "w");
     if (!temp_file) {
-        printf("gabisa buat temp file");
+        //printf("gabisa buat temp file");
         perror("Could not open temporary file");
         fclose(file);
         return 0;
@@ -775,6 +791,8 @@ int edit_password(const char *username, const char *new_password) {
         return 0;
     }
 
+    char *encrypted_pass = bcrypt(new_password);
+
     char line[1024];
     int found = 0;
     while (fgets(line, sizeof(line), file)) {
@@ -782,7 +800,7 @@ int edit_password(const char *username, const char *new_password) {
         char old_username[256], user_role[256];
         sscanf(line, "%d,%255[^,],%255[^,]", &id, old_username, user_role);
         if (strcmp(username, old_username) == 0) {
-            fprintf(temp_file, "%d,%s,%s", id, old_username, new_password);
+            fprintf(temp_file, "%d,%s,%s", id, old_username, encrypted_pass);
             found = 1;
         } else {
             fputs(line, temp_file);
@@ -1191,6 +1209,69 @@ int delete_chat(const char *channel_name, const char *room_name, const char *use
     }
 }
 
+void daemonize() {
+    pid_t pid;
+
+    // Fork the parent process
+    printf("Forking the process...\n");
+    pid = fork();
+
+    if (pid < 0) {
+        perror("Fork failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Terminate the parent process
+    if (pid > 0) {
+        printf("Exiting parent process...\n");
+        exit(EXIT_SUCCESS);
+    }
+
+    // On success: the child process becomes the session leader
+    printf("Setting session leader...\n");
+    if (setsid() < 0) {
+        perror("setsid failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Ignore signal sent from child to parent process
+    signal(SIGCHLD, SIG_IGN);
+
+    // Fork off for the second time
+    printf("Forking again...\n");
+    pid = fork();
+
+    if (pid < 0) {
+        perror("Fork failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Terminate the parent process
+    if (pid > 0) {
+        printf("Exiting parent process...\n");
+        exit(EXIT_SUCCESS);
+    }
+
+    // Set new file permissions
+    printf("Setting file permissions...\n");
+    umask(0);
+
+    // Change the working directory to the root directory
+    printf("Changing working directory...\n");
+    if (chdir("/") < 0) {
+        perror("chdir failed");
+        exit(EXIT_FAILURE);
+    }
+
+    
+    printf("Redirecting standard file descriptors...\n");
+    open("/dev/null", O_RDWR); // stdin
+    dup(0); // stdout
+    dup(0); // stderr
+
+    printf("Daemon setup complete.\n");
+}
+
 void handle_client(int new_socket) {
     char buffer[1024] = {0};
     int valread;
@@ -1257,7 +1338,7 @@ void handle_client(int new_socket) {
                 } else if (strncmp(buffer, "EDIT CHANNEL", 12) == 0) {
                     char old_channel_name[256], new_channel_name[256];
                     sscanf(buffer, "%*s %*s %255s %*s %255s", old_channel_name, new_channel_name);
-                    printf("%s %s\n", username, old_channel_name);
+                    //printf("%s %s\n", username, old_channel_name);
                     //cek admin bukan?
                     if (is_admin(old_channel_name, user.id)||is_root(user.username)) {
                         if (edit_channel(username, old_channel_name, new_channel_name)) {
@@ -1319,13 +1400,13 @@ void handle_client(int new_socket) {
                         if (channel_exists(channel_name)) {
                             // admin/root 
                             if (is_admin(channel_name, user.id)) {
-                                printf("ada admin\n");
+                                //printf("ada admin\n");
                                 // catet di auth.csv
                                 char auth_file[512];
                                 snprintf(auth_file, sizeof(auth_file), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/admin/auth.csv", channel_name);
                                 // kalo belum member, tulis namanya di auth.csv
                                 if (!is_member(user.username, channel_name)){
-                                    printf("bukan member\n");
+                                   // printf("bukan member\n");
                                     FILE *auth_fp = fopen(auth_file, "a");
                                     if (auth_fp) {
                                         fprintf(auth_fp, "%d,%s,%s\n", user.id, username, ROLE_ROOT);
@@ -1343,14 +1424,14 @@ void handle_client(int new_socket) {
                                 log_user_activity(username, activity, admin_path);
                                 send(new_socket, " ", strlen(" "), 0);
                             } else if (is_root(user.username)){
-                                printf("ada root\n");
+                                //printf("ada root\n");
                                 // catet di auth.csv
                                 char auth_file[512];
                                 snprintf(auth_file, sizeof(auth_file), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/admin/auth.csv", channel_name);
                             
                                 // kalo belum member, tulis namanya di auth.csv
                                 if (!is_member(user.username, channel_name)){
-                                    printf("bukan member\n");
+                                    //printf("bukan member\n");
                                     FILE *auth_fp = fopen(auth_file, "a");
                                     if (auth_fp) {
                                         fprintf(auth_fp, "%d,%s,%s\n", user.id, username, ROLE_ROOT);
@@ -1374,7 +1455,7 @@ void handle_client(int new_socket) {
                                     send(new_socket, "Anda dibanned\n", strlen("Anda dibanned\n"), 0);
                                 } else {
                                     if(is_member(user.username, channel_name)){
-                                        printf("ada member\n");
+                                        // printf("ada member\n");
                                         // ubah nilai in_channel
                                         user.in_channel = 0;
                                         strcpy(user.cur_channel, channel_name);
@@ -1386,7 +1467,7 @@ void handle_client(int new_socket) {
                                         log_user_activity(username, activity, admin_path);
                                         send(new_socket, " ", strlen(" "), 0);
                                     } else {
-                                        printf("ada orang baru\n");
+                                        // printf("ada orang baru\n");
                                         // user belum pernah join sebelumnya (bukan member)
                                         char response[256];
                                         snprintf(response, sizeof(response), "Key: ");
@@ -1410,7 +1491,7 @@ void handle_client(int new_socket) {
                                                 file_channel_key[strcspn(file_channel_key, "\r\n")]=0; // remove newline
                                                 //printf("ini key csv: %s\n", file_channel_key);
                                                 //printf("ini key input: %s\n", key);
-                                                if (strcmp(file_channel_key, key) == 0) {
+                                                if (check_password(key, file_channel_key)) {
                                                     // catat di auth.csv
                                                     key_valid = 1;
                                                     char auth_file[512];
@@ -1447,13 +1528,12 @@ void handle_client(int new_socket) {
                             send(new_socket, "Channel tidak tersedia\n", strlen("Channel tidak tersedia\n"), 0);
                         }
                     } else {
-                        // sudah pernah masuk channel
                         // JOIN ROOM
                         char room_name[256];
                         sscanf(buffer, "%*s %255s", room_name);
                         room_name[strcspn(room_name, "\r\n")]=0; // remove newline
-                        printf("%s\n", channel_name);
-                        printf("%s\n", room_name);
+                        //printf("%s\n", channel_name);
+                        //printf("%s\n", room_name);
 
                         if (room_exists(channel_name, room_name) && strcmp(room_name, "admin") != 0) {
                             // admin/root 
@@ -1729,6 +1809,17 @@ void handle_client(int new_socket) {
                     } else {
                         send(new_socket, "Anda belum masuk ke channel dan room manapun\n", strlen("Anda belum masuk ke channel dan room manapun\n"), 0);
                     }
+                } else if(strstr(buffer, "-channel") && strstr(buffer, "-room")){
+                    char channel_name[256], room_name[256];
+                    sscanf(buffer, "%*s %255s %*s %255s", channel_name, room_name); // -channel channel1 -room room1
+                    if(user.in_channel !=0){
+                        if (channel_exists(channel_name) && room_exists(channel_name, room_name)) {
+                            // admin/root 
+                            see_chat(new_socket, channel_name, room_name);
+                        } else {
+                            send(new_socket, "Channel atau room tidak tersedia\n", strlen("Room tidak tersedia\n"), 0);
+                        }
+                    }
                 } else if(strncmp(buffer, "EXIT", 4)==0){
                     // lagi masuk room
                     if(user.in_room == 0){
@@ -1761,7 +1852,6 @@ void handle_client(int new_socket) {
             send(new_socket, "Invalid username or password\n", strlen("Invalid username or password\n"), 0);
         }
     } else {
-        printf("loh?? salah?\n");
         send(new_socket, "Invalid command\n", strlen("Invalid command\n"), 0);
     }
 }
@@ -1771,6 +1861,8 @@ int main(int argc, char const *argv[]) {
     struct sockaddr_in address;
     int opt = 1;
     int addrlen = sizeof(address);
+
+    // daemonize();
 
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
