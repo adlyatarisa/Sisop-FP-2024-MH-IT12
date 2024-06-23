@@ -31,7 +31,7 @@ void register_user(const char *username, const char *password) {
         return;
     }
 
-    snprintf(message, sizeof(message), "REGISTER %s %s", username, password);
+    snprintf(message, sizeof(message), "DISCORIT REGISTER %s %s", username, password);
     send(sock, message, strlen(message), 0);
     valread = read(sock, buffer, 1024);
     printf("%s\n", buffer);
@@ -66,7 +66,7 @@ void login_user(const char *username, const char *password) {
         return;
     }
 
-    snprintf(message, sizeof(message), "LOGIN %s %s", username, password);
+    snprintf(message, sizeof(message), "DISCORIT LOGIN %s %s", username, password);
     send(sock, message, strlen(message), 0);
     valread = read(sock, buffer, 1024);
     buffer[valread] = '\0';
@@ -81,7 +81,7 @@ void login_user(const char *username, const char *password) {
                 strcpy(current_username, new_username);
             } 
             
-            
+            // format path
             if (strlen(current_channel) == 0 && strlen(current_room) == 0) {
                 printf("[%s]> ", current_username);
             } else if (strlen(current_channel) != 0 && strlen(current_room) == 0) {
@@ -94,8 +94,12 @@ void login_user(const char *username, const char *password) {
             fgets(input, sizeof(input), stdin);
             input[strcspn(input, "\n")] = 0; // Remove newline character
 
-            // Handle EDIT PROFILE USER -u new_username command
-            
+
+            if(strstr(input, "-channel") && strstr(input, "-room")){
+                // jangan di send
+                printf("Invalid command. Try on monitor\n");
+                continue;
+            }            
 
             // Send the input to the server
             send(sock, input, strlen(input), 0);
