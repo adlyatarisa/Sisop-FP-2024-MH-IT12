@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <arpa/inet.h>
@@ -18,6 +19,7 @@
 #define ROLE_ROOT "ROOT"
 #define ROLE_ADMIN "ADMIN"
 #define ROLE_USER "USER"
+#define MAX_CLIENTS 5
 
 typedef struct {
     char username[256];
@@ -36,6 +38,16 @@ typedef struct {
     char key[256];
     char admin[256];
 } Channel;
+
+typedef struct {
+    int socket;
+    bool is_monitor;
+    bool logged_in;
+    char username[256];
+} Client;
+
+Client clients[MAX_CLIENTS] = {0};
+int client_count = 0;
 
 int user_exists(const char *username) {
     FILE *file = fopen(USERS_FILE, "r");
@@ -998,7 +1010,7 @@ int ban_user(const char *channel_name, const char *username) {
         int id;
         char auth_username[256], user_role[256];
         sscanf(line, "%d,%255[^,],%255[^,]", &id, auth_username, user_role);
-        if (strcmp(username, auth_username) == 0) {
+        if (strcmp(username, auth_username) == 0 && is_root(username) != 1) {
             fprintf(temp_file, "%d,%s,%s\n", id, auth_username, "BANNED");
             found = 1;
         } else {
@@ -1281,7 +1293,6 @@ int delete_chat(const char *channel_name, const char *room_name, const char *use
 void daemonize() {
     pid_t pid;
 
-    // Fork the parent process
     printf("Forking the process...\n");
     pid = fork();
 
@@ -1290,23 +1301,19 @@ void daemonize() {
         exit(EXIT_FAILURE);
     }
 
-    // Terminate the parent process
     if (pid > 0) {
         printf("Exiting parent process...\n");
         exit(EXIT_SUCCESS);
     }
 
-    // On success: the child process becomes the session leader
     printf("Setting session leader...\n");
     if (setsid() < 0) {
         perror("setsid failed");
         exit(EXIT_FAILURE);
     }
 
-    // Ignore signal sent from child to parent process
     signal(SIGCHLD, SIG_IGN);
 
-    // Fork off for the second time
     printf("Forking again...\n");
     pid = fork();
 
@@ -1315,17 +1322,14 @@ void daemonize() {
         exit(EXIT_FAILURE);
     }
 
-    // Terminate the parent process
     if (pid > 0) {
         printf("Exiting parent process...\n");
         exit(EXIT_SUCCESS);
     }
 
-    // Set new file permissions
     printf("Setting file permissions...\n");
     umask(0);
 
-    // Change the working directory to the root directory
     printf("Changing working directory...\n");
     if (chdir("/") < 0) {
         perror("chdir failed");
@@ -1341,22 +1345,39 @@ void daemonize() {
     printf("Daemon setup complete.\n");
 }
 
-void handle_client(int new_socket) {
+void *handle_client(void *arg) {
+    int new_socket = *(int *)arg;
     char buffer[1024] = {0};
     int valread;
+    int client_index = -1;
+
+    // Add client to the list
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i].socket == 0) {
+            clients[i].socket = new_socket;
+            client_index = i;
+            client_count++;
+            break;
+        }
+    }
 
     // Read initial command
     valread = read(new_socket, buffer, 1024);
     buffer[valread] = '\0';
 
-    char command[256], username[256], password[256];
-    sscanf(buffer, "%255s %255s %255s", command, username, password);
+    if(strstr(buffer, "DISCORIT")){
+        clients[client_index].is_monitor = false;
+    } else if (strstr(buffer, "MONITOR")){
+        clients[client_index].is_monitor = true;
+    }
 
+    char command[256], username[256], password[256];
+    sscanf(buffer, "%*s %255s %255s %255s", command, username, password);
     if (strcmp(command, "REGISTER") == 0) {
         if (register_user(username, password) == 1) {
-            send(new_socket, "User registered successfully\n", strlen("User registered successfully\n"), 0);
+            send(new_socket, "username berhasil register\n", strlen("username berhasil register\n"), 0);
         } else {
-            send(new_socket, "Username already exists\n", strlen("Username already exists\n"), 0);
+            send(new_socket, "username sudah terdaftar\n", strlen("username sudah terdaftar\n"), 0);
         }
     } else if (strcmp(command, "LOGIN") == 0) {
         User user;
@@ -1396,7 +1417,7 @@ void handle_client(int new_socket) {
                         send(new_socket, "Usage: CREATE CHANNEL nama -k key\n", strlen("Usage: CREATE CHANNEL nama -k key\n"), 0);
                     }
                 } else if(strstr(buffer, "EDIT CHAT")){
-                    if(user.in_channel == 0 && user.in_room == 0){
+                    if(user.in_channel == 1 && user.in_room == 1){
                         char msg[256];
                         int msg_id;
                         int result = sscanf(buffer, "%*s %*s %d \"%[^\"]\"", &msg_id, msg); //EDIT CHAT id "halo semua"
@@ -1462,7 +1483,7 @@ void handle_client(int new_socket) {
                     char channel_name[256];
                     // belum pernah join channel
                     // join channel
-                    if(user.in_channel){
+                    if(user.in_channel == 0){
                         sscanf(buffer, "%*s %255s", channel_name);
                         if (channel_exists(channel_name)) {
                             // admin/root 
@@ -1481,7 +1502,7 @@ void handle_client(int new_socket) {
                                     }
                                 }
                                 // ubah nilai in_channel
-                                user.in_channel = 0;
+                                user.in_channel = 1;
                                 strcpy(user.cur_channel, channel_name);
                                 // catet log
                                 char admin_path[256];
@@ -1507,7 +1528,7 @@ void handle_client(int new_socket) {
                                 }
 
                                 // ubah nilai in_channel
-                                user.in_channel = 0;
+                                user.in_channel = 1;
                                 strcpy(user.cur_channel, channel_name);
                                 // catet log
                                 char admin_path[256];
@@ -1524,7 +1545,7 @@ void handle_client(int new_socket) {
                                     if(is_member(user.username, channel_name)){
                                         // printf("ada member\n");
                                         // ubah nilai in_channel
-                                        user.in_channel = 0;
+                                        user.in_channel = 1;
                                         strcpy(user.cur_channel, channel_name);
                                         // catet log
                                         char admin_path[256];
@@ -1569,7 +1590,7 @@ void handle_client(int new_socket) {
                                                         fclose(auth_fp);
                                                     }
                                                     // ubah nilai in_channel
-                                                    user.in_channel = 0;
+                                                    user.in_channel = 1;
                                                     strcpy(user.cur_channel, channel_name);
                                                     // catet log
                                                     char admin_path[256];
@@ -1611,7 +1632,8 @@ void handle_client(int new_socket) {
                                 char activity[256];
                                 snprintf(activity, sizeof(activity), "%s masuk ke room %s", username, room_name);
                                 log_user_activity(username, activity, admin_path);
-                                user.in_room = 0;
+                                user.in_room = 1;
+                                user.in_channel = 1;
                                 strcpy(user.cur_room, room_name);
                                 send(new_socket, "masuk room", strlen("masuk room"), 0);
                             } else { //bukan admin/root (user)
@@ -1621,7 +1643,8 @@ void handle_client(int new_socket) {
                                 char activity[256];
                                 snprintf(activity, sizeof(activity), "%s masuk ke room %s", username, room_name);
                                 log_user_activity(username, activity, admin_path);
-                                user.in_room = 0;
+                                user.in_room = 1;
+                                user.in_channel = 1;
                                 strcpy(user.cur_room, room_name);
                                 send(new_socket, "masuk room", strlen("masuk room"), 0);
                             }  
@@ -1632,7 +1655,7 @@ void handle_client(int new_socket) {
                     
                 } else if (strncmp(buffer, "EDIT ROOM", 9) == 0){ // hanya buat admin dan root
                     // sudah pernah masuk channel
-                    if (user.in_channel == 0){
+                    if (user.in_channel == 1){
                         if (is_admin(user.cur_channel, user.id)||is_root(user.username)) {
                             char room_name[256], new_room_name[256];
                             int result = sscanf(buffer, "%*s %*s %255s %*s %255s", room_name, new_room_name);
@@ -1641,36 +1664,34 @@ void handle_client(int new_socket) {
                                 new_room_name[strcspn(new_room_name, "\r\n")]=0; // remove newline
 
                                 // cek admin apa bukan
-                                if(is_admin(user.cur_channel, user.id)||is_root(user.username)){
-                                    if (room_exists(user.cur_channel, room_name)) {
-                                        if (edit_room(username, user.cur_channel, room_name, new_room_name)) {
-                                            char response[256];
-                                            snprintf(response, sizeof(response), "Room %s diubah menjadi %s\n", room_name, new_room_name);
-                                            char act[256];
-                                            snprintf(act, sizeof(act), "%s mengubah room %s menjadi %s", username, room_name, new_room_name);
-                                            char log_path[256];
-                                            snprintf(log_path, sizeof(log_path), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/admin", user.cur_channel);
-                                            log_user_activity(username, act, log_path);
-                                            send(new_socket, response, strlen(response), 0);
-                                        } else {
-                                            send(new_socket, "Gagal mengubah room\n", strlen("Gagal mengubah room\n"), 0);
-                                        }
+                                if (room_exists(user.cur_channel, room_name)) {
+                                    if (edit_room(username, user.cur_channel, room_name, new_room_name)) {
+                                        char response[256];
+                                        snprintf(response, sizeof(response), "Room %s diubah menjadi %s\n", room_name, new_room_name);
+                                        char act[256];
+                                        snprintf(act, sizeof(act), "%s mengubah room %s menjadi %s", username, room_name, new_room_name);
+                                        char log_path[256];
+                                        snprintf(log_path, sizeof(log_path), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/admin", user.cur_channel);
+                                        log_user_activity(username, act, log_path);
+                                        send(new_socket, response, strlen(response), 0);
                                     } else {
-                                        send(new_socket, "Room tidak ditemukan\n", strlen("Room tidak ditemukan\n"), 0);
+                                        send(new_socket, "Gagal mengubah room\n", strlen("Gagal mengubah room\n"), 0);
                                     }
                                 } else {
-                                    send(new_socket, "Anda bukan admin\n", strlen("Anda bukan admin\n"), 0);
+                                    send(new_socket, "Room tidak ditemukan\n", strlen("Room tidak ditemukan\n"), 0);
                                 }
                             } else {
                                 send(new_socket, "Usage: EDIT ROOM namalama TO namabaru\n", strlen("Usage: EDIT ROOM namalama TO namabaru\n"), 0);
                             }
+                        } else {
+                            send(new_socket, "Anda belum masuk ke channel manapun\n", strlen("Anda belum masuk ke channel manapun\n"), 0);
                         }
                     } else {
                         send(new_socket, "Anda belum masuk ke channel manapun\n", strlen("Anda belum masuk ke channel manapun\n"), 0);
                     }
                 } else if (strncmp(buffer, "DEL ROOM", 8) == 0){ // hanya buat admin dan root
                     // sudah pernah masuk channel
-                    if (user.in_channel == 0){
+                    if (user.in_channel == 1){
                         char room_name[256];
                         sscanf(buffer, "%*s %*s %255s", room_name);
 
@@ -1701,7 +1722,7 @@ void handle_client(int new_socket) {
                     }
                 } else if (strncmp(buffer, "LIST ROOM", 9) == 0){ // all user
                     // sudah pernah masuk channel
-                    if (user.in_channel == 0){
+                    if (user.in_channel == 1){
                         list_rooms(new_socket, user.cur_channel);
                     } else {
                         send(new_socket, "Anda belum masuk ke channel manapun\n", strlen("Anda belum masuk ke channel manapun\n"), 0);
@@ -1789,7 +1810,7 @@ void handle_client(int new_socket) {
                     }
                 } else if(strcmp(buffer, "LIST USER") == 0){
                     // cek di dalem channel apa bukan
-                    if(user.in_channel == 0){ 
+                    if(user.in_channel == 1){ 
                         // list user keseluruhan (cuma bisa root)
                         list_channel_users(new_socket, user.cur_channel);
                     } else {
@@ -1803,12 +1824,11 @@ void handle_client(int new_socket) {
                     char users_name[256];
                     sscanf(buffer, "%*s %255s", users_name); //BAN user1
                     // user udah dalem channel
-                    if(user.in_channel == 0){
+                    if(user.in_channel == 1){
                         if(is_member(users_name, user.cur_channel)){
-                        // ban user (cuma bisa admin)
+                            // ban user (cuma bisa admin dan root)
                             if(is_admin(user.cur_channel, user.id)||is_root(user.username)){
-                                
-                                if(strcmp(user.username, users_name) != 0){ // user bukan admin atau root
+                                if(strcmp(users_name, user.username) != 0){ // user bukan admin atau root
                                     if (ban_user(user.cur_channel, users_name)) {
                                         send(new_socket, "User dibanned\n", strlen("User dibanned\n"), 0);
                                     } else {
@@ -1830,7 +1850,7 @@ void handle_client(int new_socket) {
                     char users_name[256];
                     sscanf(buffer, "%*s %255s", users_name); //UNBAN user1
                     // user udah dalem channel
-                    if(user.in_channel == 0){
+                    if(user.in_channel == 1){
                         // ada ga usernya?
                         if(is_member(users_name, user.cur_channel)){    
                             // unban user (cuma bisa admin sama root)
@@ -1857,7 +1877,7 @@ void handle_client(int new_socket) {
                     char msg[256];
                     int result = sscanf(buffer, "%*s \"%[^\"]\"", msg); //CHAT "halo semua"
                     if (result == 1) {
-                        if(user.in_channel == 0 && user.in_room == 0){
+                        if(user.in_channel == 1 && user.in_room == 1){
                             chat(user.cur_channel, user.cur_room, user.username, msg);
                             send(new_socket, "Pesan terkirim\n", strlen("Pesan terkirim\n"), 0);
                         } else {
@@ -1867,13 +1887,13 @@ void handle_client(int new_socket) {
                         send(new_socket, "Usage: CHAT \"text\"\n", strlen("Usage: CHAT \"text\"\n"), 0);
                     }
                 } else if(strncmp(buffer, "SEE CHAT", 8) == 0){
-                    if(user.in_channel == 0 && user.in_room == 0){
+                    if(user.in_channel == 1 && user.in_room == 1){
                         see_chat(new_socket, user.cur_channel, user.cur_room);
                     } else {
                         send(new_socket, "Anda belum masuk ke channel dan room manapun\n", strlen("Anda belum masuk ke channel dan room manapun\n"), 0);
                     }
                 } else if(strncmp(buffer, "DEL CHAT", 8) == 0){
-                    if(user.in_channel == 0 && user.in_room == 0){
+                    if(user.in_channel == 1 && user.in_room == 1){
                         int msg_id;
                         sscanf(buffer, "%*s %*s %d", &msg_id); //DEL CHAT id
                         if (delete_chat(user.cur_channel, user.cur_room, user.username, user.id, msg_id)) {
@@ -1887,21 +1907,21 @@ void handle_client(int new_socket) {
                 } else if(strstr(buffer, "-channel") && strstr(buffer, "-room")){
                     char channel_name[256], room_name[256];
                     sscanf(buffer, "%*s %255s %*s %255s", channel_name, room_name); // -channel channel1 -room room1
-                    if(user.in_channel !=0){
-                        if (channel_exists(channel_name) && room_exists(channel_name, room_name)) {
-                            // admin/root 
-                            see_chat(new_socket, channel_name, room_name);
-                        } else {
-                            send(new_socket, "Channel atau room tidak tersedia\n", strlen("Room tidak tersedia\n"), 0);
-                        }
+                    if (channel_exists(channel_name) && room_exists(channel_name, room_name)) {
+                        // admin/root 
+                        user.in_channel = 1;
+                        user.in_room = 1;
+                        see_chat(new_socket, channel_name, room_name);
+                    } else {
+                        send(new_socket, "Channel atau room tidak tersedia\n", strlen("Room tidak tersedia\n"), 0);
                     }
                 } else if(strncmp(buffer, "EXIT", 4)==0){
                     // lagi masuk room
-                    if(user.in_room == 0){
-                        user.in_room = 1;
+                    if(user.in_room == 1){
+                        user.in_room = 0;
                         send(new_socket, "exit room\n", strlen("exit room\n"), 0);
-                    } else if(user.in_channel == 0) {
-                        user.in_channel = 1;
+                    } else if(user.in_channel == 1) {
+                        user.in_channel = 0;
                         send(new_socket, "exit channel\n", strlen("exit channel\n"), 0);
                     } else {
                         close(new_socket);
@@ -1929,6 +1949,15 @@ void handle_client(int new_socket) {
     } else {
         send(new_socket, "Invalid command\n", strlen("Invalid command\n"), 0);
     }
+
+    close(new_socket);
+
+    // Remove client from the list
+    clients[client_index].socket = 0;
+    clients[client_index].is_monitor = false;
+    client_count--;
+
+    return NULL;
 }
 
 int main(int argc, char const *argv[]) {
@@ -1937,7 +1966,7 @@ int main(int argc, char const *argv[]) {
     int opt = 1;
     int addrlen = sizeof(address);
 
-    // daemonize();
+    daemonize();
 
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
@@ -1970,19 +1999,13 @@ int main(int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    while ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) >= 0) {
-        if (fork() == 0) {  // Create a new process for each client
-            close(server_fd);
-            handle_client(new_socket);
-            close(new_socket);
-            exit(0);
+    while (1) {
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            perror("accept");
+            continue;
         }
-        close(new_socket);
-    }
-
-    if (new_socket < 0) {
-        perror("accept");
-        exit(EXIT_FAILURE);
+        pthread_t thread_id;
+        pthread_create(&thread_id, NULL, handle_client, (void *)&new_socket);
     }
 
     return 0;
