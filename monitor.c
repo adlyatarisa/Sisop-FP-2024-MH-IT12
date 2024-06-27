@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/stat.h>
 #define PORT 8081
 
 void login_user(const char *username, const char *password) {
@@ -13,7 +14,7 @@ void login_user(const char *username, const char *password) {
     char message[1024] = {0};
     char current_username[256];
 
-    strncpy(current_username, username, sizeof(current_username) - 1); // 
+    strncpy(current_username, username, sizeof(current_username) - 1);
     current_username[sizeof(current_username) - 1] = '\0';
 
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -42,64 +43,65 @@ void login_user(const char *username, const char *password) {
     printf("%s\n", buffer);
 
     if (strstr(buffer, "berhasil login")) {
-        char current_channel[256] = {0};
-        char current_room[256] = {0};
         while (1) {
-            // ubah nama
-            if(strstr(buffer, "Profil diupdate menjadi")){
-                char *new_username = strstr(buffer, "Profil diupdate menjadi ") + strlen("Profil diupdate menjadi ");
-                strcpy(current_username, new_username);
-            } 
-            
-            // format path
-            if (strlen(current_channel) == 0 && strlen(current_room) == 0) {
-                printf("[%s]> ", current_username);
-            } else if (strlen(current_channel) != 0 && strlen(current_room) == 0) {
-                printf("[%s/%s]> ", current_username, current_channel);
-            } else {
-                printf("[%s/%s/%s]> ", current_username, current_channel, current_room);
+            // Read message from server
+            valread = read(sock, buffer, 1024);
+            buffer[valread] = '\0';
+            //printf("%s\n", buffer);
+            if (strstr(buffer, "exit")) {
+                break;
             }
 
-            // baca inout user
-            char input[1024];
-            fgets(input, sizeof(input), stdin);
-            input[strcspn(input, "\n")] = 0; // Remove newline character
-
-            if(strstr(input, "-channel") && strstr(input, "-room")){
-                
+            if (strstr(buffer, "-channel") && strstr(buffer, "-room")) {
                 // Send the input to the server
-                send(sock, input, strlen(input), 0);
+                send(sock, buffer, strlen(buffer), 0);
                 valread = read(sock, buffer, 1024);
                 buffer[valread] = '\0';
-                printf("%s\n", buffer);
-                // ambil nama channel dan room
-                char channel_name[256], room_name[256];
-                sscanf(input, "%*s %255s %*s %255s", channel_name, room_name);
-                
-                strcpy(current_channel, channel_name);
-                strcpy(current_room, room_name);
-                continue;
-            } else if(strstr(input, "EXIT")){
-                send(sock, input, strlen(input), 0);
-                valread = read(sock, buffer, 1024);
-                buffer[valread] = '\0';
+                // memset(buffer, 0, sizeof(buffer));
                 //printf("%s\n", buffer);
-                if (strstr(buffer, "exit room")){
-                    strcpy(current_room, "");
+                // Extract channel name and room name
+                char channel_name[256], room_name[256];
+                sscanf(buffer, "%*s %255s %*s %255s", channel_name, room_name);
+                printf("Channel name: %s, Room name: %s\n", channel_name, room_name);
+                
+                // Read chat.csv file
+                char file_path[512];
+                snprintf(file_path, sizeof(file_path), "/Users/tarisa/smt-2/sisop/FP/discorit/%s/%s/chat.csv", channel_name, room_name);
+                FILE *file = fopen(file_path, "r");
+                if (file == NULL) {
+                    printf("Failed to open chat.csv file\n");
                     continue;
-                } else if (strstr(buffer, "exit channel")){
-                    strcpy(current_channel, "");
-                    continue;
-                } else {
-                    break;
                 }
-            } else {
-                printf("Invalid command. Try on discorit\n");
-                continue;
-            }
 
+                struct stat st;
+                off_t last_size = 0;
+                while (1) {
+                    valread = read(sock, buffer, 1024);
+                    if (valread > 0) {
+                        buffer[valread] = '\0';
+                        if (strstr(buffer, "EXIT")) {
+                            break;
+                        }
+                    }
+
+                    if (stat(file_path, &st) == 0) {
+                        if (st.st_size > last_size) {
+                            fseek(file, last_size, SEEK_SET); 
+                            char line[1024];
+                            while (fgets(line, sizeof(line), file)) {
+                                printf("%s", line);
+                            }
+                            last_size = st.st_size;
+                        }
+                    }
+                    
+                    sleep(1); 
+                }
+                fclose(file);
+                close(sock); 
+                break; 
+            }
         }
-        return;
     }
 }
 
