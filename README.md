@@ -488,6 +488,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
   ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/6a06ac96-d6e8-4dd6-a3dd-e2a896bed317)
 
 ### 7. Fitur Monitor
-monitor dapat menampilkan chat dari command yang dikirim melalui discorit
+Monitor dapat menampilkan chat dari command yang dikirim melalui discorit
+
 <img width="799" alt="image" src="https://github.com/adlyatarisa/Sisop-FP-2024-MH-IT12/assets/164857172/f03abdfd-f0b8-49d2-a358-a4714c948915">
 
