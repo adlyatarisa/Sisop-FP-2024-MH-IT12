@@ -441,3 +441,50 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
     
     ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/cda4c5c0-5297-40a1-bee7-99d6fdf39ddd)
 
+- User ROOT mengedit dan menghapus channel.
+ 
+    ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/c8950163-b8f2-4502-bac0-a3b58b93199e)
+
+    
+### 3. Fitur Room
+- Membuat dan join room
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/4f92f53c-1f4d-4e9e-bd6a-fc0f51ed6120)
+
+- Chat didalam room, melihat, mengedit, dan menghapus chat di room.
+  
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/a7d0c4d4-8416-4f60-8950-d06d8f128e71)
+
+- Admin channel mengedit room, menghapus room, dan menghapus semua room.
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/7d3fda4c-f393-4e41-ad5b-0e8e7798146c)
+
+
+### 4. Fitur pada user ROOT
+- User ROOT dapat melakukan edit dan remove user lain.
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/c980d375-ff21-48b7-960b-937839bcf261)
+
+- Admin dapat melakukan ban, unban, dan remove user lain
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/e2791bf3-5641-4edf-adf3-0565316795df)
+### 5. Fitur pada user masing-masing
+- User bisa mengedit profile masing-masing seperti username dan password.
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/127a384a-ff5b-40f3-a041-79d6aa242f4e)
+
+- User ketika dirinya dibanned karena nakal.
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/8f7bf972-a3c8-499f-9dc5-70d5b1494c3f)
+
+### 6. Hasil ```auth.csv``` dan ```users.log``` setelah eksperimen
+
+- ```auth.csv```
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/7d996320-123e-400b-96cd-ef552ce7f910)
+
+- ```users.log```
+
+  ![image](https://github.com/DzakyAhnaf/Sisop-FP-2024-MH-IT12/assets/110287409/6a06ac96-d6e8-4dd6-a3dd-e2a896bed317)
+
+### 7. Fitur Monitor
