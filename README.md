@@ -19,7 +19,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 - Untuk hanya menampilkan chat, user perlu membuka program client (monitor)
 
 ## Penjelasan Kode
-## - discorit.c
+### discorit.c
 
 1. Fungsi ```register_user```
 	  ```c
@@ -266,7 +266,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 
 
   
-## - monitor.c
+### monitor.c
 
 1. Fungsi ```login_user```
 	  ```c
@@ -398,7 +398,291 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 	```
 
     Fungsi ```main``` digunakan untuk mengecek apakah argumen perintah sesuai dengan format yang seharusnya. Jika tidak sesuai, maka akan mengeluarkan pesan format argumen yang benar.
+
+### server.c
+### 1. Inisialisasi Library dan Struktur Data
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <pthread.h>
+#include <bcrypt.h>
+
+#define PORT 8081
+#define USERS_FILE "/home/jeky/sisop/praktikum/FP/users.csv"
+#define CHANNELS_FILE "/home/jeky/sisop/praktikum/FP/channels.csv"
+#define USER_LOG "/home/jeky/sisop/praktikum/FP/users.log"
+#define ROLE_ROOT "ROOT"
+#define ROLE_ADMIN "ADMIN"
+#define ROLE_USER "USER"
+#define MAX_CLIENTS 5
+
+typedef struct {
+    char username[256];
+    char password[256];
+    char role[256];
+    int id;
+    int in_channel;
+    char cur_channel[256];
+    int in_room;
+    char cur_room[256];
+    int login_monitor;
+} User;
+
+typedef struct {
+    int id;
+    char name[256];
+    char key[256];
+    char admin[256];
+} Channel;
+
+typedef struct {
+    int socket;
+    bool is_monitor;
+    bool logged_in;
+    char username[256];
+} Client;
+
+typedef struct {
+    int logged_in;
+} Monitor;
+
+Client clients[MAX_CLIENTS] = {0};
+int client_count = 0;
+```
+Penjelasan:
+
+- Kode dimulai dengan meng-include berbagai library yang diperlukan untuk fungsi-fungsi jaringan, file I/O, threading, dan enkripsi.
+- Beberapa konstanta penting didefinisikan, termasuk ```PORT```, path file, dan role pengguna.
+- Struktur data utama (User, Channel, Client, Monitor) didefinisikan untuk menyimpan informasi pengguna, channel, client, dan monitor.
+- Array ```clients``` diinisialisasi untuk menangani multiple client, dengan maksimum 5 client (```MAX_CLIENTS```).
+
+### 2. Fungsi-fungsi Utilitas
+```c
+int user_exists(const char *username) {
+    FILE *file = fopen(USERS_FILE, "r");
+    if (!file) return 0;
+
+    char line[1024];
+    while (fgets(line, sizeof(line), file)) {
+        char file_username[256];
+        sscanf(line, "%*[^,], %255[^,]", file_username);
+        if (strcmp(file_username, username) == 0) {
+            fclose(file);
+            return 1;
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
+
+int getIDuser() { 
+    FILE *file = fopen(USERS_FILE, "r");
+    if (!file) {
+        return 1;  // Mulai dari 1 jika file tidak ada
+    }
+
+    char line[1024];
+    int max_id = 0;
+    while (fgets(line, sizeof(line), file)) {
+        int id;
+        sscanf(line, "%d", &id);
+        if (id > max_id) {
+            max_id = id;
+        }
+    }
+
+    fclose(file);
+    return max_id + 1;
+}
+
+char *bcrypt(const char *password) {
+    char salt[] = "$2b$12$XXXXXXXXXXXXXXXXXXXXXX"; // Generate a random salt
+    char *encrypted_password = crypt(password, salt);
+    return strdup(encrypted_password);
+}
+
+int check_password(const char *password, const char *encrypted_password) {
+    return strcmp(encrypted_password, crypt(password, encrypted_password)) == 0;
+}
+```
+Penjelasan:
+
+- ```user_exists```: Memeriksa apakah username sudah ada di file ```users.csv```.
+- ```getIDuser```: Mencari ID user tertinggi di ```users.csv``` dan mengembalikan ID baru (tertinggi + 1).
+- ```bcrypt```: Mengenkripsi password menggunakan bcrypt dengan salt statis.
+- ```check_password```: Memverifikasi password dengan membandingkan hasil enkripsi.
+
+### 3. Manajemen User
+```c
+int register_user(const char *username, const char *password) {
+    if (user_exists(username)) {
+        return 0;
+    }
+
+    FILE *file = fopen(USERS_FILE, "a");
+    if (!file) {
+        perror("Could not open users file");
+        return -1;
+    }
+
+    const char *role = ROLE_USER;
+    if (ftell(file) == 0) {
+        role = ROLE_ROOT;
+    }
+    int user_id = getIDuser();
+    char *encrypted_password = bcrypt(password);
+    fprintf(file, "%d,%s,%s,%s\n", user_id, username, encrypted_password, role);
+    free(encrypted_password);
+    fclose(file);
+
+    return 1;
+}
+
+int verify_user(const char *username, const char *password, User *user) {
+    FILE *file = fopen(USERS_FILE, "r");
+    if (!file) return 0;
+
+    char line[1024];
+    while (fgets(line, sizeof(line), file)) {
+        int user_id;
+        char file_username[256], file_password[256], file_role[256];
+        sscanf(line, "%d, %255[^,],%255[^,],%255[^,]", &user_id, file_username, file_password, file_role);
+        if (strcmp(file_username, username) == 0 && check_password(password,file_password)) {
+            user->id = user_id;
+            strcpy(user->username, file_username);
+            strcpy(user->password, file_password);
+            strcpy(user->role, file_role);
+            fclose(file);
+            return 1;
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
+```
+Penjelasan:
+
+- ```register_user```: Mendaftarkan user baru ke ```users.csv```. Jika file kosong, user pertama menjadi ```ROOT```.
+- ```verify_user```: Memverifikasi kredensial user saat login, membandingkan dengan data di ```users.csv```.
+
+### 4. Manajemen Channel dan Room
+```c
+void list_channels(int socket) {
+    FILE *file = fopen(CHANNELS_FILE, "r");
+    if (!file) {
+        send(socket, "No channels.csv available\n", strlen("No channels.csv available\n"), 0);
+        return;
+    }
+
+    char line[1024];
+    char response[4096] = {0};
+    int empty = 1;
+    while (fgets(line, sizeof(line), file)) {
+        empty = 0;
+        char channel_id[256], channel_name[256], channel_key[256];
+        sscanf(line, "%255[^,],%255[^,],%255[^,]", channel_id, channel_name, channel_key);
+        strcat(response, channel_name);
+        strcat(response, " ");
+    }
+
+    if (empty) {
+        send(socket, "No channels available\n", strlen("No channels available\n"), 0);
+    } else {
+        send(socket, response, strlen(response), 0);
+    }
+
+    fclose(file);
+}
+
+void list_rooms(int socket, const char *channel_name){
+    char channel_path[256];
+    snprintf(channel_path, sizeof(channel_path), "/home/jeky/sisop/praktikum/FP/%s", channel_name);
+
+    DIR *dir = opendir(channel_path);
+    if (!dir) {
+        perror("opendir");
+        return;
+    }
+    struct dirent *ent;
+    char response[4096] = {0};
+    int found = 0;
     
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_type == DT_DIR) {
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+                continue;
+            }
+            if (strcmp(ent->d_name, "admin") == 0){
+                continue;
+            }
+            strcat(response, ent->d_name);
+            strcat(response, " ");
+            found = 1;
+        }
+    } 
+    if (!found) {
+        strcat(response, "Tidak ada room yang tersedia\n");
+    }
+    closedir(dir);
+    send(socket, response, strlen(response), 0);
+}
+
+// Fungsi list_users dan list_channel_users dihilangkan untuk menghemat ruang
+
+int create_channel(const char *channel_name, const char *username, const char *key) {
+    int channel_id = getIDchannel();
+
+    FILE *file = fopen(CHANNELS_FILE, "a");
+    if (!file) {
+        perror("Could not open channels file");
+        return 0;
+    }
+
+    char *encrypted_key = bcrypt(key);
+    fprintf(file, "%d,%s,%s\n", channel_id, channel_name, encrypted_key);
+    fclose(file);
+
+    char dir_path[512];
+    snprintf(dir_path, sizeof(dir_path), "/home/jeky/sisop/praktikum/FP/%s", channel_name);
+
+    if (mkdir(dir_path, 0777) == -1) {
+        perror("Could not create directory for channel");
+        return 0;
+    } else{
+        printf("Channel created successfully\n");
+    }
+
+    char admin_path[512];
+    snprintf(admin_path, sizeof(admin_path), "%s/admin",dir_path);
+    if (mkdir(admin_path, 0777) == -1) {
+        perror("Could not create directory for admin");
+        return 0;
+    }
+
+    char activity[256];
+    snprintf(activity, sizeof(activity), "%s buat %s", username, channel_name);
+    log_user_activity(username, activity, admin_path);
+
+    return 1;
+}
+
+// Fungsi create_room, edit_channel, dan edit_room dihilangkan untuk menghemat ruang
+```
+Penjelasan:
+- ```list_channels```: Menampilkan daftar channel dari ```channels.csv```.
+- ```list_rooms```: Menampilkan daftar room dalam sebuah channel.
+- ```create_channel```: Membuat channel baru, termasuk direktori dan file yang diperlukan.
 
 ## Dokumentasi Program
 ### 1. Autentikasi User
