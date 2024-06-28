@@ -21,7 +21,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 ## Penjelasan Kode
 ## - discorit.c
 
-1. Fungsi ```register_user```:
+1. Fungsi ```register_user```
 	  ```c
 	void register_user(const char *username, const char *password) {
     int sock = 0, valread;
@@ -48,7 +48,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 	```
 	Bagian ini untuk membuat soket menggunakan IPv4 dan protokol TCP. Jika gagal, akan mencetak pesan kesalahan dan keluar dari fungsi. Lalu menginisialisasi serv_addr dengan nol, kemudian mengatur keluarga alamat ke AF_INET, dan port ke nilai yang sudah terdefinisi dikonversi ke format jaringan.
 
-3. Menghubungkan ke server dan mengirim pesan.
+3. Menghubungkan ke server dan mengirim pesan
    ```c
 	    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
         printf("\nInvalid address/ Address not supported \n");
@@ -71,7 +71,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 	
 	Mengkonversi alamat IP ke format biner dan menyimpannya di serv_addr.sin_addr. Setelah itu, menghubungkan soket ke alamat server. Kemudian, membentuk pesan pendaftaran dengan username dan password, mengirim pesan ke server, membaca respons dari server, dan mencetaknya.
 
-4. Fungsi ```login_user```:
+4. Fungsi ```login_user```
    ```c
     void login_user(const char *username, const char *password) {
     int sock = 0, valread;
@@ -238,7 +238,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
  
     Fungsi ini untuk mengecek apakah channel dan room tersedia serta apakah pengguna di-ban dari channel/room tersebut. Jika channel atau room tidak tersedia, maka akan keluar pesan bahwa channel atau room tersebut tidak tersedia, dan pengguna tidak bisa join. Selain itu, jika pengguna di-ban dari channel/room tersebut, maka mereka tidak akan bisa bergabung. Status pengguna, channel, dan room diperbarui sesuai dengan respons server.
    
-6. Fungsi ```main```:
+6. Fungsi ```main```
    	```c
    	int main(int argc, char const *argv[]) {
     if (argc != 5 || (strcmp(argv[1], "REGISTER") != 0 && strcmp(argv[1], "LOGIN") != 0) || strcmp(argv[3], "-p") != 0) {
@@ -375,7 +375,7 @@ Intinya pada tugas Final Project ini, kita diharapkan membuat sebuah program api
 	
 	Setelah berhasil login, fungsi ini memasuki loop untuk mengelola pesan yang diterima dari server. Jika server mengirimkan pesan yang berisi kata "exit", proses loop akan berhenti. Jika pesan yang diterima mengandung kata "-channel" dan "-room", pesan tersebut dikirim kembali ke server dan responsnya dibaca. Dari respons tersebut, nama channel dan room diekstraksi dan dicetak. Selanjutnya, fungsi membaca file chat.csv yang terletak di direktori sesuai dengan channel dan room yang diterima. Jika file chat.csv berhasil dibuka, fungsi memeriksa perubahan ukuran file untuk mencetak baris baru yang ditambahkan sejak bacaan terakhir. Setelah selesai, file dan soket ditutup sebelum keluar dari loop.
 
-4. Fungsi ```main```:
+4. Fungsi ```main```
    ```c
 	int main(int argc, char const *argv[]) {
     if (argc != 5 || (strcmp(argv[1], "LOGIN") != 0) || strcmp(argv[3], "-p") != 0) {
